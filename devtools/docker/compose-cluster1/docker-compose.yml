@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  my-cassandra:
+    image: cassandra:latest
+    container_name: my-cassandra
+    ports:
+      - "9042:9042"
+    restart: on-failure:2
+    volumes:
+      - my-cassandra-data:/var/lib/cassandra
+
+volumes:
+  my-cassandra-data:
+    driver: local  

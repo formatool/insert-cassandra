@@ -11,10 +11,16 @@ import org.springframework.shell.command.annotation.Option;
 import org.springframework.stereotype.Service;
 
 import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.DefaultConsistencyLevel;
 import com.datastax.oss.driver.api.core.cql.BoundStatement;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import com.datastax.oss.driver.api.core.cql.Statement;
 import com.datastax.oss.driver.api.core.uuid.Uuids;
+import com.datastax.oss.driver.internal.core.cql.DefaultSimpleStatement;
+import com.datastax.oss.driver.internal.core.retry.ConsistencyDowngradingRetryPolicy;
+import com.datastax.oss.protocol.internal.ProtocolConstants.ConsistencyLevel;
 import com.github.javafaker.Faker;
 
 import jakarta.annotation.PostConstruct;
@@ -27,6 +33,7 @@ public class Commands {
 
     private final CqlSession session;
     private final PrintResultSet printResultSet;
+    private boolean executeInfo = false;
 
     @PostConstruct
     public void init() {
@@ -58,24 +65,33 @@ public class Commands {
     public void query(
             @Option(required = true, defaultValue = "DESCRIBE TABLES;", description = "Statement CQL") String query,
             @Option(required = true, defaultValue = "T", description = "tipo de impressão. T=Table F=Form") char format) {
-        ResultSet resultSet = session.execute(query);
+
+        SimpleStatement simpleStatement = SimpleStatement.builder(query).build();
+        if (this.executeInfo) {
+            simpleStatement = simpleStatement.setTracing(true);
+        }
+        ResultSet rs = session.execute(simpleStatement);
         if (format == 'T') {
-            printResultSet.printTableFormat(resultSet);
+            printResultSet.printTableFormat(rs);
         } else {
-            printResultSet.printFormFormat(resultSet);
+            printResultSet.printFormFormat(rs);
+        }
+        if (rs != null && this.executeInfo) {
+            log.debug("Execution Info: ", rs.getExecutionInfo().getQueryTrace().getParameters());
         }
     }
 
     @Command(command = "insert:pessoa", description = "Faz um Insert na tabela Pessoa")
     public void insertPessoa(
             @Option(required = true, defaultValue = "1", description = "Quantidade de pessoas") int qtd,
-            @Option(required = true, defaultValue = "500", description = "Tempo entre inserts em milisegundos") long pause) throws InterruptedException {
+            @Option(required = true, defaultValue = "500", description = "Tempo entre inserts em milisegundos") long pause)
+            throws InterruptedException {
         Faker faker = new Faker();
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         PreparedStatement preparedStatement = session
-                    .prepare("INSERT INTO pessoa (id, nome, sobrenome, email, data_de_nascimento) " +
-                            "VALUES (?, ?, ?, ?, ?)");
-        for (int i = 0; i < qtd; i++) {            
+                .prepare("INSERT INTO pessoa (id, nome, sobrenome, email, data_de_nascimento) " +
+                        "VALUES (?, ?, ?, ?, ?)");
+        for (int i = 0; i < qtd; i++) {
             UUID id = Uuids.random();
             String nome = faker.name().firstName();
             String sobrenome = faker.name().lastName();
@@ -84,12 +100,21 @@ public class Commands {
             LocalDate localDate = dataNascimento.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
 
             BoundStatement boundStatement = preparedStatement.bind(id, nome, sobrenome, email, localDate);
+            if (this.executeInfo) {
+                boundStatement = boundStatement.setTracing(true);
+            }
             String insertQuery = String.format(
                     "INSERT INTO pessoa (id, nome, sobrenome, email, data_de_nascimento) " +
                             "VALUES (%s, '%s', '%s', '%s', '%s');",
                     id.toString(), nome, sobrenome, email, dateFormat.format(dataNascimento));
+
             System.out.println(insertQuery);
-            session.execute(boundStatement);
+            ResultSet rs = session.execute(boundStatement);
+            if (rs != null && this.executeInfo) {
+                log.debug("Execution Info: ", rs.getExecutionInfo().getQueryTrace().getParameters());
+                // System.out.println("consistency_level:
+                // "+rs.getExecutionInfo().getQueryTrace().getParameters().get("consistency_level"));
+            }
             if (pause > 0 && i < qtd - 1) {
                 Thread.sleep(pause);
             }
@@ -99,6 +124,14 @@ public class Commands {
     @Command
     public void profiles() {
         System.out.println("Profiles do drivers Cassandra: " + session.getContext().getConfig().getProfiles().keySet());
+    }
+
+    @Command
+    public void executeInfo(@Option(required = false, description = "Liga ou desliga executeInfo") Boolean liga) {
+        if (null != liga) {
+            this.executeInfo = liga;
+        }
+        System.out.println("executeInfo está "+Boolean.toString(this.executeInfo));
     }
 
     @Command
