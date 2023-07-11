@@ -4,6 +4,9 @@ services:
   my-cassandra:
     image: cassandra:latest
     container_name: my-cassandra
+    environment:
+      - "MAX_HEAP_SIZE=512M"
+      - "HEAP_NEWSIZE=256M"
     ports:
       - "9042:9042"
     restart: on-failure:2
