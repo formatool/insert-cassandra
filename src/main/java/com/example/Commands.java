@@ -1,7 +1,13 @@
 package com.example;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -9,24 +15,44 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import javax.annotation.Nullable;
 
+import org.reactivestreams.Publisher;
+import org.springframework.boot.autoconfigure.mustache.MustacheProperties.Reactive;
+import org.springframework.data.cassandra.core.WriteResult;
+import org.springframework.data.cassandra.core.mapping.Tuple;
 import org.springframework.shell.command.annotation.Command;
 import org.springframework.shell.command.annotation.Option;
 import org.springframework.stereotype.Service;
 
+import com.datastax.dse.driver.api.core.DseSession;
+import com.datastax.dse.driver.api.core.cql.reactive.ReactiveResultSet;
+import com.datastax.dse.driver.internal.core.cql.reactive.SimpleUnicastProcessor;
 import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.DriverException;
 import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import com.datastax.oss.driver.api.core.config.DriverConfigLoader;
 import com.datastax.oss.driver.api.core.cql.AsyncResultSet;
 import com.datastax.oss.driver.api.core.cql.BoundStatement;
 import com.datastax.oss.driver.api.core.cql.ExecutionInfo;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import com.datastax.oss.driver.api.core.metadata.EndPoint;
 import com.datastax.oss.driver.api.core.metadata.Node;
+import com.datastax.oss.driver.api.core.uuid.Uuids;
+import com.github.javafaker.Faker;
+import com.typesafe.config.ConfigFactory;
 
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuple3;
+import reactor.util.function.Tuples;
 
 /**
  * Define todos os comandos JShell da aplicação
@@ -115,7 +141,7 @@ public class Commands {
                             configBoundStatement(statements.boundStatement(pessoa), profile),
                             statements.stringStatement(pessoa),
                             String.valueOf(i + 1),
-                            (pause>0 || qtd<=10));
+                            (pause > 0 || qtd <= 10));
                 } catch (Exception e) {
                     erros++;
                 }
@@ -137,7 +163,7 @@ public class Commands {
             @Option(required = false, description = "Profile de execução") final String profile)
             throws InterruptedException, ExecutionException {
         printResult.clear();
-        printResult.printf("%n#---%n# Iniciando inserePessoa:async. Qtd: %s%n", qtd);
+        printf(true, "%n#---%n# Iniciando inserePessoa:async. Qtd: %s%n", qtd);
         var statements = new PessoaStatements(session, keyspace);
         LocalDateTime start = LocalDateTime.now();
         List<CompletableFuture<?>> pending = new ArrayList<>();
@@ -146,10 +172,10 @@ public class Commands {
             String executionInformation = String.valueOf(i);
             var pessoa = Pessoa.fake();
             var future = executeAsyncBoundStatement(
-                            configBoundStatement(statements.boundStatement(pessoa), profile),
-                            statements.stringStatement(pessoa),
-                            executionInformation);
-            future.exceptionally(e -> {                
+                    configBoundStatement(statements.boundStatement(pessoa), profile),
+                    statements.stringStatement(pessoa),
+                    executionInformation);
+            future.exceptionally(e -> {
                 erroCount.incrementAndGet();
                 return null;
             });
@@ -161,7 +187,43 @@ public class Commands {
         LocalDateTime end = LocalDateTime.now();
         System.out.printf(
                 "#======%n# Qtd.Total: %s%n# Qtd.Inserts: %s%n# Qtd.Erros: %s%n# Início: %s%n# Fim: %s%n# Tempo: %s%n# ThrottlerMaxConcurrency Default: %s%n",
-                pending.size(), pending.size()-erroCount.get(), erroCount.get(), start.toLocalTime(), end.toLocalTime(), Duration.between(start, end),
+                pending.size(), pending.size() - erroCount.get(), erroCount.get(), start.toLocalTime(),
+                end.toLocalTime(), Duration.between(start, end),
+                session.getContext().getConfig().getDefaultProfile()
+                        .getInt(DefaultDriverOption.REQUEST_THROTTLER_MAX_CONCURRENT_REQUESTS));
+    }
+
+    @Command(command = "inserePessoa:reactive", description = "Faz um insert de várias Pessoa utilizando CqlSession.executeAsync")
+    public void insertPessoaReactice(
+            @Option(required = true, defaultValue = "1000", description = "Quantidade de pessoas") final int qtd,
+            @Option(required = false, description = "Profile de execução") final String profile)
+            throws InterruptedException, ExecutionException {
+        printResult.clear();
+        printf(true, "%n#---%n# Iniciando inserePessoa:reactive. Qtd: %s%n", qtd);
+        var statements = new PessoaStatements(session, keyspace);
+        LocalDateTime start = LocalDateTime.now();
+        // https://docs.datastax.com/en/developer/java-driver/4.8/manual/core/reactive/
+        long erros = Flux.range(1, qtd)
+                .map((index) -> Tuples.of(String.valueOf(index), Pessoa.fake()))
+                .map((t2) -> Tuples.of(t2.getT1(),
+                        statements.boundStatement(t2.getT2()),
+                        statements.stringStatement(t2.getT2())))
+                .doOnNext((t3) -> printf(false, "%s%n", t3.getT3()))
+                .flatMap(t -> Flux.from(session.executeReactive(t.getT2()))
+                        // dummy cast, since result sets are always empty for write queries
+                        .cast(Long.class)
+                        // flow will always be empty, so '1' will be emitted for each query
+                        .defaultIfEmpty(0L)
+                        .doOnError(e -> System.err.printf("Statement failed: %s %s%n", t.getT3(), e.getMessage()))
+                        .onErrorReturn(1L))
+                .reduce(0L, Long::sum)
+                .block();
+
+        LocalDateTime end = LocalDateTime.now();
+        System.out.printf(
+                "#======%n# Qtd.Total: %s%n# Qtd.Inserts: %s%n# Qtd.Erros: %s%n# Início: %s%n# Fim: %s%n# Tempo: %s%n# ThrottlerMaxConcurrency Default: %s%n",
+                qtd, qtd - erros, erros, start.toLocalTime(), end.toLocalTime(),
+                Duration.between(start, end),
                 session.getContext().getConfig().getDefaultProfile()
                         .getInt(DefaultDriverOption.REQUEST_THROTTLER_MAX_CONCURRENT_REQUESTS));
     }
@@ -183,13 +245,13 @@ public class Commands {
         try {
             ResultSet rs = session.execute(boundStatement);
             if (rs != null && log.isDebugEnabled()) {
-                    printf(showProgress,
+                printf(showProgress,
                         "%s%n#-(%s)-^--^--^--%n#Execution Infos.:%n#  Coordinator: %s (%s)%n#  Consistency Level:%s%n%n",
                         printableStatement,
                         executionInformation,
                         rs.getExecutionInfo().getCoordinator().getEndPoint().resolve().toString(),
                         rs.getExecutionInfo().getCoordinator().getDatacenter(),
-                        rs.getExecutionInfo().getQueryTrace().getParameters().get("consistency_level"));  
+                        rs.getExecutionInfo().getQueryTrace().getParameters().get("consistency_level"));
             }
             return rs;
         } catch (Exception e) {
@@ -205,14 +267,16 @@ public class Commands {
         if (showProgress) {
             System.out.printf(message, args);
         }
-        printResult.printf(message, args);   
+        if (showProgress || log.isDebugEnabled()) {
+            printResult.printf(message, args);
+        }
     }
 
     private CompletableFuture<AsyncResultSet> executeAsyncBoundStatement(BoundStatement boundStatement,
             String printableStatement,
             String executionInformation) {
         var completionStage = session.executeAsync(boundStatement)
-                .thenApplyAsync(rs -> {                    
+                .thenApplyAsync(rs -> {
                     ExecutionInfo executionInfo = rs.getExecutionInfo();
                     printResult.printf(
                             "%s%n#-(%s)-^--^--^--%n#Execution Infos.:%n#  Coordinator: %s (%s)%n#  Consistency Level:%s%n%n",
@@ -220,10 +284,10 @@ public class Commands {
                             executionInformation,
                             executionInfo.getCoordinator().getEndPoint().resolve().toString(),
                             executionInfo.getCoordinator().getDatacenter(),
-                            executionInfo.getQueryTrace().getParameters().get("consistency_level"));                    
+                            executionInfo.getQueryTrace().getParameters().get("consistency_level"));
                     return rs;
                 })
-                .exceptionally(e -> {                    
+                .exceptionally(e -> {
                     printResult.printf(
                             "%s%n#-(%s)-^--^--^--%n#Exception:%n#  %s%n%n%n",
                             printableStatement,
@@ -278,7 +342,7 @@ public class Commands {
 
     @Command(description = "Imprime o resultado dos comandos executados anteriormente.")
     public void print() {
-        System.out.println(printResult.toString());        
+        System.out.println(printResult.toString());
     }
 
 }
