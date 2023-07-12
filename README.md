@@ -9,6 +9,8 @@ Demonstra como:
   - Como obter informações de execução
   - Uso de profiles no driver
   - Retry com Downgrade de Consistency Level com a abordagem padrão e customizada
+  - Realizar CQL Inserts Async
+  - Realizar CQL Inserts Reactives
 
 ## Requisitos
 
