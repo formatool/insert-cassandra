@@ -8,6 +8,10 @@ import com.datastax.oss.driver.api.core.CqlSession;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Inicializa o keyspaces Cassandra ao iniciar aplicação,
+ * utilizando o arquivo schema.cql em resources.
+ */
 @Service
 @Slf4j
 public class InitKeyspace {

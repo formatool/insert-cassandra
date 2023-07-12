@@ -1,12 +1,14 @@
 package com.example;
 
-import java.text.SimpleDateFormat;
 import java.time.format.DateTimeFormatter;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.BoundStatement;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
 
+/**
+ * Cria Statements para entidade Pessoa
+ */
 public class PessoaStatements {
 
     private final PreparedStatement preparedStatement;
@@ -29,7 +31,6 @@ public class PessoaStatements {
     }
 
     public String stringStatement(Pessoa pessoa) {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         return String.format(
                 stringStatement,
                 pessoa.getId().toString(),

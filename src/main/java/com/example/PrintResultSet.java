@@ -18,6 +18,9 @@ import com.datastax.oss.driver.api.core.type.MapType;
 import com.datastax.oss.driver.api.core.type.SetType;
 import com.datastax.oss.driver.api.core.type.UserDefinedType;
 
+/**
+ * Classe utilitária para formatar ResultsSets
+ */
 @Service
 public class PrintResultSet {
 

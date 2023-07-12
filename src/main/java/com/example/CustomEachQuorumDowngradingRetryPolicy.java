@@ -15,6 +15,13 @@ import com.datastax.oss.driver.internal.core.retry.ConsistencyDowngradingRetryVe
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 
+/**
+ * Uma extensão do {@link ConsistencyDowngradingRetryPolicy} que ao invés de diminuir a consistência 
+ * de EACH_QUORUM ou QUORUM para ONE, diminui para LOCAL_QUORUM.
+ * 
+ * Só vai realizar a retry se a consistencia for originalmente EACH_QUORUM ou QUORUM
+ * 
+ */
 public class CustomEachQuorumDowngradingRetryPolicy extends ConsistencyDowngradingRetryPolicy {
   private static final Logger LOG = LoggerFactory.getLogger(CustomEachQuorumDowngradingRetryPolicy.class);
   private final String logPrefix;
@@ -106,7 +113,8 @@ public class CustomEachQuorumDowngradingRetryPolicy extends ConsistencyDowngradi
     // JAVA-1005: EACH_QUORUM does not report a global number of alive replicas
     // so even if we get 0 alive replicas, there might be a node up in some other
     // datacenter
-    if (current.getProtocolCode() == ConsistencyLevel.EACH_QUORUM.getProtocolCode()) {
+    if (current.getProtocolCode() == ConsistencyLevel.EACH_QUORUM.getProtocolCode() ||
+        current.getProtocolCode() == ConsistencyLevel.QUORUM.getProtocolCode()) {
       return new ConsistencyDowngradingRetryVerdict(ConsistencyLevel.LOCAL_QUORUM);
     }
     return RetryVerdict.RETHROW;

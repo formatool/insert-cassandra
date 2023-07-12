@@ -2,9 +2,10 @@
 
 Projeto para realizar testes de INSERT no Cassandra.
 
-Demonstra:
+Demonstra como:
   - Executar um cluster Cassandra com docker
   - Como mudar e conferir configurações do driver de conexão Cassandra
+  - Inicializar um keyspaces Cassandra ao inicia aplicação
   - Como obter informações de execução
   - Uso de profiles no driver
   - Retry com Downgrade de Consistency Level com a abordagem padrão e customizada

@@ -19,6 +19,10 @@ import com.typesafe.config.ConfigRenderOptions;
 
 import lombok.extern.slf4j.Slf4j;
 
+
+/**
+ * Cria um bean de {@link CqlSession} utilizando diferentes arquivos de configuração.
+ */
 @Configuration
 @Slf4j
 public class CassandraSession implements DisposableBean {
@@ -27,7 +31,7 @@ public class CassandraSession implements DisposableBean {
 
     @Bean
     CqlSession cqlSession() throws IOException {
-        log.info("Manually building connection with Cassandra.");
+        log.info("Manually building connection with Cassandra.");        
 
         // Constrói a sessão do CqlSession com as configurações mescladas
         this.cqlSession = CqlSession.builder()
@@ -39,16 +43,16 @@ public class CassandraSession implements DisposableBean {
 
     private DriverConfigLoader configLoader() throws IOException {
         Config internalConfig = ConfigFactory.load("application.conf");
-        log.warn("Internal configuration:\n{}", internalConfig.root().render(ConfigRenderOptions.concise()));
+        log.debug("Internal configuration:\n{}", internalConfig.root().render(ConfigRenderOptions.concise()));
         Resource[] externalResources = getExternalResources();
-        log.warn("External configurations application.conf found: {}.", externalResources.length);
+        log.info("External configurations application.conf found: {}.", externalResources.length);
         Config externalConfig = ConfigFactory.empty();
         for (Resource resource : externalResources) {
-            log.warn("External configuration file: {}", resource.getFile().getAbsolutePath());
+            log.debug("External configuration file: {}", resource.getFile().getAbsolutePath());
             externalConfig = externalConfig.withFallback(ConfigFactory.parseURL(resource.getURL()));            
         }        
         Config mergedConfig = externalConfig.withFallback(internalConfig);
-        log.warn("Merged configuration:\n{}", externalConfig.root().render(ConfigRenderOptions.concise()));
+        log.debug("Merged configuration:\n{}", externalConfig.root().render(ConfigRenderOptions.concise()));
         return DriverConfigLoader.fromString(mergedConfig.root().render(ConfigRenderOptions.concise()));
     }
 
@@ -77,7 +81,6 @@ public class CassandraSession implements DisposableBean {
 
     @Override
     public void destroy() {
-        log.info("Closing CqlSession");
         if (cqlSession != null && !cqlSession.isClosed()) {
             log.info("Closing CqlSession");
             cqlSession.close();

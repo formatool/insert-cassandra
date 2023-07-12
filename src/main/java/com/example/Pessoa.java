@@ -7,6 +7,9 @@ import java.util.UUID;
 import com.datastax.oss.driver.api.core.uuid.Uuids;
 import com.github.javafaker.Faker;
 
+/**
+ * Uma entidade de negócio para exemplos
+ */
 public class Pessoa {
     private UUID id;
     private String nome;
